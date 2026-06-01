@@ -5,7 +5,7 @@
 #include <expected>
 
 /* mywc ********************
-*    version 2.0           *
+*    version 2.1           *
 *                          *
 *    made by Azkey         *
 ****************************/
@@ -22,11 +22,8 @@ enum class ErrorType {
     IOError = 3,
 };
 
-// using FileResult = std::expected<std::ifstream, ErrorType>;
-
 class FileProp {
     private:
-        std::ifstream ifs;
         std::size_t lines;
         std::size_t words;
         std::size_t bytes;
@@ -35,11 +32,11 @@ class FileProp {
         // ~FileProp();
         static std::expected<FileProp, ErrorType>
             create( const char* fileName );
-        std::size_t getLines();
-        std::size_t getWords();
-        std::size_t getBytes();
+        std::size_t getLines() const;
+        std::size_t getWords() const;
+        std::size_t getBytes() const;
         FileProp& operator+=(const FileProp& fp);
-        void echo( const char* description );
+        void echo( const char* description ) const;
 };
 
 // Count lines ( i.e. number of "\n" + 1 ) of input file.
@@ -59,7 +56,8 @@ int main( int argc, char* argv[] ) {
 
         const char* fileName = argv[1];
         
-        auto fp = FileProp::create(fileName);
+        std::expected<FileProp, ErrorType> fp
+            = FileProp::create(fileName);
 
         if ( !fp ) {
             std::cerr << "Invalid file name." << std::endl;
@@ -109,21 +107,20 @@ std::expected<FileProp, ErrorType> FileProp::create( const char* fileName ) {
     if ( !ifs.is_open() ) {
         return std::unexpected{ ErrorType::IOError };
     }
-    fp.ifs = std::move(ifs);
-    fp.lines = countLine(fp.ifs);
-    fp.words = countWord(fp.ifs);
-    fp.bytes = countByte(fp.ifs);
+    fp.lines = countLine(ifs);
+    fp.words = countWord(ifs);
+    fp.bytes = countByte(ifs);
 
     return fp;
 }
 
-std::size_t FileProp::getLines() {
+std::size_t FileProp::getLines() const {
     return lines;
 }
-std::size_t FileProp::getWords() {
+std::size_t FileProp::getWords() const {
     return words;
 }
-std::size_t FileProp::getBytes() {
+std::size_t FileProp::getBytes() const {
     return bytes;
 }
 
@@ -134,7 +131,7 @@ FileProp& FileProp::operator+=(const FileProp& fp){
     return *this;
 }
 
-void FileProp::echo( const char* description ) {
+void FileProp::echo( const char* description ) const {
     std::cout
     << std::format("{:>4} {:>6} {:>6} {}", lines, words, bytes, description)
     << std::endl;
