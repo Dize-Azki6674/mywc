@@ -1,18 +1,19 @@
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <format>
 #include <expected>
 
 /* mywc ********************
-*    version 2.1           *
+*    version 3.0           *
 *                          *
 *    made by Azkey         *
 ****************************/
 
 /* ToDo 
  * + Add help.
- * + Support stdin.
+ * + Support options.
  */
 
 // Specify the type of error.
@@ -30,6 +31,7 @@ class FileProp {
     public:
         FileProp();
         // ~FileProp();
+        static FileProp fromIst( std::istream& is );
         static std::expected<FileProp, ErrorType>
             create( const char* fileName );
         std::size_t getLines() const;
@@ -39,20 +41,17 @@ class FileProp {
         void echo( const char* description ) const;
 };
 
-// Count lines ( i.e. number of "\n" + 1 ) of input file.
-std::size_t countLine( std::istream& is );
-
-// Count words of input file.
-std::size_t countWord( std::istream& is );
-
-// Count bytes of input file.
-std::size_t countByte( std::istream& is );
-
-
 
 int main( int argc, char* argv[] ) {
 
-    if ( argc == 2 ) {  // single file input
+    int fileCnt = argc - 1;
+
+    if ( fileCnt == 0 ) {
+
+        FileProp fp = FileProp::fromIst( std::cin );
+        fp.echo("<stdin>");
+
+    } else if ( fileCnt == 1 ) {  // single file input
 
         const char* fileName = argv[1];
         
@@ -60,25 +59,23 @@ int main( int argc, char* argv[] ) {
             = FileProp::create(fileName);
 
         if ( !fp ) {
-            std::cerr << "Invalid file name." << std::endl;
             return static_cast<int>(fp.error());
         }
         
         fp->echo( fileName );
 
-    } else if ( argc > 2 ) {    // multiple file input
+    } else if ( fileCnt > 1 ) {    // multiple file input
 
         FileProp total;
 
-        for (int i = 1; i < argc; i++){
+        for (int i = 0; i < fileCnt; i++){
             
-            char* fileName = argv[i];
+            char* fileName = argv[i+1];
 
             std::expected<FileProp, ErrorType> fp
                 = FileProp::create(fileName);
 
             if ( !fp ) {
-                std::cerr << "Invalid file name." << std::endl;
                 return static_cast<int>(fp.error());
             }
             
@@ -101,15 +98,34 @@ FileProp::FileProp():
 {
 }
 
-std::expected<FileProp, ErrorType> FileProp::create( const char* fileName ) {
+FileProp FileProp::fromIst( std::istream& is ) {
     FileProp fp;
+    char ch;
+    bool inWord = false;
+    while ( is.get(ch) ) {
+        fp.bytes++;
+
+        if ( std::isspace(static_cast<unsigned char>(ch)) ) {
+            inWord = false;
+        } else if ( !inWord ) {
+            fp.words++;
+            inWord = true;
+        }
+
+        if ( ch == '\n' ) {
+            fp.lines++;
+        }
+    }
+    return fp;
+}
+
+std::expected<FileProp, ErrorType> FileProp::create( const char* fileName ) {
     std::ifstream ifs(fileName, std::ios_base::binary);
     if ( !ifs.is_open() ) {
+        std::cerr << "Invalid file name: " << fileName << std::endl;
         return std::unexpected{ ErrorType::IOError };
     }
-    fp.lines = countLine(ifs);
-    fp.words = countWord(ifs);
-    fp.bytes = countByte(ifs);
+    FileProp fp = FileProp::fromIst(ifs);
 
     return fp;
 }
@@ -136,44 +152,3 @@ void FileProp::echo( const char* description ) const {
     << std::format("{:>4} {:>6} {:>6} {}", lines, words, bytes, description)
     << std::endl;
 }
-
-// Count lines ( i.e. number of "\n" + 1 ) of input file.
-std::size_t countLine( std::istream& is ) {
-    std::size_t lineCounter = 0;
-    std::string line;
-    while ( std::getline(is, line) ) {
-        ++lineCounter;
-    }
-    is.clear();
-    is.seekg(0);
-    return lineCounter;
-};
-
-// Count words of input file.
-std::size_t countWord( std::istream& is ) {
-    is.clear();
-    is.seekg(0);
-
-    std::size_t wordCounter = 0;
-    std::string word;
-
-    while ( is >> word ) {
-        ++wordCounter;
-    }
-    
-    is.clear();
-    is.seekg(0);
-
-    return wordCounter;
-};
-
-// Count bytes of input file.
-std::size_t countByte( std::istream& is ) {
-    is.clear();
-    std::streamsize size = is.seekg(0, std::ios::end).tellg();
-    
-    is.clear();
-    is.seekg(0);
-
-    return static_cast<std::size_t>(size);
-};
