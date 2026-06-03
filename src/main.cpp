@@ -1,19 +1,19 @@
 #include <iostream>
 #include <fstream>
-#include <sstream>
+#include <vector>
+#include <map>
 #include <string>
-#include <format>
+#include <iomanip>
 #include <expected>
 
 /* mywc ********************
-*    version 3.0           *
+*    version 4.0           *
 *                          *
 *    made by Azkey         *
 ****************************/
 
 /* ToDo 
  * + Add help.
- * + Support options.
  */
 
 // Specify the type of error.
@@ -22,6 +22,20 @@ enum class ErrorType {
     InvalidArgs = 2,
     IOError = 3,
 };
+
+enum class EchoOption : uint8_t {
+    l    = 0b001,
+     w   = 0b010,
+    lw   = 0b011,
+      b  = 0b100,
+    lb   = 0b101,
+     wb  = 0b110,
+    lwb  = 0b111,
+    none = 0b000
+};
+EchoOption& operator|=(EchoOption& L, EchoOption R);
+EchoOption operator&(EchoOption L, EchoOption R);
+EchoOption str2eop(std::string sop);
 
 class FileProp {
     private:
@@ -33,45 +47,50 @@ class FileProp {
         // ~FileProp();
         static FileProp fromIst( std::istream& is );
         static std::expected<FileProp, ErrorType>
-            create( const char* fileName );
+            create( const std::string fileName );
         std::size_t getLines() const;
         std::size_t getWords() const;
         std::size_t getBytes() const;
         FileProp& operator+=(const FileProp& fp);
-        void echo( const char* description ) const;
+        void echo( const std::string description, EchoOption eop ) const;
+};
+
+class Argument {
+    private:
+        std::vector<std::string> operands;
+        std::vector<std::string> options;
+    public:
+        Argument( int argc, char* argv[] );
+        std::vector<std::string> getOpr();
+        std::vector<std::string> getOpt();
 };
 
 
 int main( int argc, char* argv[] ) {
 
-    int fileCnt = argc - 1;
+    Argument args(argc, argv);
 
-    if ( fileCnt == 0 ) {
+    int fileCnt = args.getOpr().size();
 
-        FileProp fp = FileProp::fromIst( std::cin );
-        fp.echo("<stdin>");
+    EchoOption eop = EchoOption::lwb;
 
-    } else if ( fileCnt == 1 ) {  // single file input
-
-        const char* fileName = argv[1];
-        
-        std::expected<FileProp, ErrorType> fp
-            = FileProp::create(fileName);
-
-        if ( !fp ) {
-            return static_cast<int>(fp.error());
+    if (args.getOpt().size() != 0) {
+        eop = EchoOption::none;
+        for (const std::string& sop : args.getOpt()) {
+            eop |= str2eop(sop);
         }
-        
-        fp->echo( fileName );
+    }
+ 
+    switch (fileCnt) {
+        case 0: {
+            FileProp fp = FileProp::fromIst( std::cin );
+            fp.echo("<stdin>", eop);
 
-    } else if ( fileCnt > 1 ) {    // multiple file input
-
-        FileProp total;
-
-        for (int i = 0; i < fileCnt; i++){
+            break;
+        }
+        case 1: {
+            const std::string fileName = args.getOpr()[0];
             
-            char* fileName = argv[i+1];
-
             std::expected<FileProp, ErrorType> fp
                 = FileProp::create(fileName);
 
@@ -79,16 +98,64 @@ int main( int argc, char* argv[] ) {
                 return static_cast<int>(fp.error());
             }
             
-            fp->echo( fileName );
+            fp->echo( fileName, eop );
 
-            total += *fp;
+            break;
         }
+        default: {
+            FileProp total;
 
-        total.echo("total");
+            for (int i = 0; i < fileCnt; i++){
+                
+                std::string fileName = args.getOpr()[i];
 
+                std::expected<FileProp, ErrorType> fp
+                    = FileProp::create(fileName);
+
+                if ( !fp ) {
+                    return static_cast<int>(fp.error());
+                }
+                
+                fp->echo( fileName, eop );
+
+                total += *fp;
+            }
+
+            total.echo("total", eop);
+
+            break;
+        }
     }
 
     return 0;
+}
+
+
+EchoOption& operator|=( EchoOption& L, EchoOption R ){
+    L = static_cast<EchoOption>(
+        static_cast<uint8_t>(L) | static_cast<uint8_t>(R)
+    );
+    return L;
+}
+
+EchoOption operator&( EchoOption L, EchoOption R ){
+    return static_cast<EchoOption>(
+        static_cast<uint8_t>(L) & static_cast<uint8_t>(R)
+    );
+}
+
+EchoOption str2eop( std::string sop ) {
+    std::map<std::string, EchoOption> m;
+    
+    m["-l"  ] = EchoOption::l  ;
+    m["-w"  ] = EchoOption::w  ;
+    m["-b"  ] = EchoOption::b  ;
+    m["-lw" ] = EchoOption::lw ;
+    m["-lb" ] = EchoOption::lb ;
+    m["-wb" ] = EchoOption::wb ;
+    m["-lwb"] = EchoOption::lwb;
+
+    return m.contains(sop) ? m[sop] : EchoOption::none;
 }
 
 FileProp::FileProp():
@@ -119,7 +186,8 @@ FileProp FileProp::fromIst( std::istream& is ) {
     return fp;
 }
 
-std::expected<FileProp, ErrorType> FileProp::create( const char* fileName ) {
+std::expected<FileProp, ErrorType>
+FileProp::create( const std::string fileName ) {
     std::ifstream ifs(fileName, std::ios_base::binary);
     if ( !ifs.is_open() ) {
         std::cerr << "Invalid file name: " << fileName << std::endl;
@@ -147,8 +215,36 @@ FileProp& FileProp::operator+=(const FileProp& fp){
     return *this;
 }
 
-void FileProp::echo( const char* description ) const {
-    std::cout
-    << std::format("{:>4} {:>6} {:>6} {}", lines, words, bytes, description)
-    << std::endl;
+void FileProp::echo( const std::string description, EchoOption eop ) const {
+    if ( static_cast<bool>(eop & EchoOption::l) ) {
+        std::cout << std::setw(4) << lines;
+    }
+    if ( static_cast<bool>(eop & EchoOption::w) ) {
+        std::cout << std::setw(6) << words;
+    }
+    if ( static_cast<bool>(eop & EchoOption::b) ) {
+        std::cout << std::setw(6) << bytes;
+    }
+    std::cout << ' ' << description <<std::endl;
+}
+
+Argument::Argument( int argc, char* argv[] ) {
+    for ( int i = 1; i < argc; i++ ) {
+        std::string arg = argv[i];
+
+        if (arg.starts_with('-')) {
+            options.push_back(std::move(arg));
+            continue;
+        }
+
+        operands.push_back(std::move(arg));
+    }
+}
+
+std::vector<std::string> Argument::getOpr() {
+    return operands;
+}
+
+std::vector<std::string> Argument::getOpt() {
+    return options;
 }
