@@ -1,19 +1,23 @@
 #include <iostream>
 #include <fstream>
+#include <algorithm>
+#include <type_traits>
 #include <vector>
-#include <map>
 #include <string>
-#include <iomanip>
+#include <numeric>
 #include <expected>
 
 /* mywc ********************
-*    version 4.0           *
+*    version 5.0           *
 *                          *
 *    made by Azkey         *
 ****************************/
 
 /* ToDo 
  * + Add help.
+ * + Support operand mode('--').
+ * + Reject '-' option.
+ * + Separate aggregation function in FileProp::echo.
  */
 
 // Specify the type of error.
@@ -24,35 +28,45 @@ enum class ErrorType {
 };
 
 enum class EchoOption : uint8_t {
-    l    = 0b001,
-     w   = 0b010,
-    lw   = 0b011,
-      b  = 0b100,
-    lb   = 0b101,
-     wb  = 0b110,
-    lwb  = 0b111,
-    none = 0b000
+    l    = 1 << 0,
+     w   = 1 << 1,
+      b  = 1 << 2,
+    none = 0
 };
 EchoOption& operator|=(EchoOption& L, EchoOption R);
-EchoOption operator&(EchoOption L, EchoOption R);
-EchoOption str2eop(std::string sop);
+EchoOption operator|(EchoOption L, EchoOption R);
+std::expected<EchoOption, ErrorType>
+str2eop( const std::string& sop );
+constexpr bool hasFlag(EchoOption value, EchoOption flag);
 
 class FileProp {
     private:
         std::size_t lines;
         std::size_t words;
         std::size_t bytes;
+        std::string name;
     public:
         FileProp();
+        FileProp(
+            std::size_t l,
+            std::size_t w,
+            std::size_t b,
+            std::string specName
+        );
         // ~FileProp();
-        static FileProp fromIst( std::istream& is );
+        static FileProp create(
+            std::istream& is, std::string specName = "<stdin>"
+        );
         static std::expected<FileProp, ErrorType>
-            create( const std::string fileName );
+            tryCreate( const std::string& fileName );
+        static void echo( const FileProp& fp, EchoOption eop );
+        static void echo(
+            const std::vector<FileProp>& fpv,
+            EchoOption eop
+        );
         std::size_t getLines() const;
         std::size_t getWords() const;
         std::size_t getBytes() const;
-        FileProp& operator+=(const FileProp& fp);
-        void echo( const std::string description, EchoOption eop ) const;
 };
 
 class Argument {
@@ -61,114 +75,147 @@ class Argument {
         std::vector<std::string> options;
     public:
         Argument( int argc, char* argv[] );
-        std::vector<std::string> getOpr();
-        std::vector<std::string> getOpt();
+        const std::vector<std::string>& getOperands() const;
+        const std::vector<std::string>& getOptions() const;
+        bool hasOption() const;
+        bool containsOption(std::string opt) const;
 };
+
+void printHelp();
+void printVersion();
 
 
 int main( int argc, char* argv[] ) {
 
     Argument args(argc, argv);
 
-    int fileCnt = args.getOpr().size();
+    std::size_t fileCnt = args.getOperands().size();
 
-    EchoOption eop = EchoOption::lwb;
+    EchoOption eop = EchoOption::l | EchoOption::w | EchoOption::b;
 
-    if (args.getOpt().size() != 0) {
+    if ( args.containsOption("--help") ) {
+        printHelp();
+        return 0;
+    }
+
+    if ( args.containsOption("--version") ) {
+        printVersion();
+        return 0;
+    }
+
+    if ( args.hasOption() ) {
+        
         eop = EchoOption::none;
-        for (const std::string& sop : args.getOpt()) {
-            eop |= str2eop(sop);
-        }
-    }
- 
-    switch (fileCnt) {
-        case 0: {
-            FileProp fp = FileProp::fromIst( std::cin );
-            fp.echo("<stdin>", eop);
 
-            break;
-        }
-        case 1: {
-            const std::string fileName = args.getOpr()[0];
-            
-            std::expected<FileProp, ErrorType> fp
-                = FileProp::create(fileName);
+        for (const std::string& sop : args.getOptions()) {
 
-            if ( !fp ) {
-                return static_cast<int>(fp.error());
-            }
-            
-            fp->echo( fileName, eop );
+            std::expected<EchoOption, ErrorType> op = str2eop( sop );
 
-            break;
-        }
-        default: {
-            FileProp total;
-
-            for (int i = 0; i < fileCnt; i++){
-                
-                std::string fileName = args.getOpr()[i];
-
-                std::expected<FileProp, ErrorType> fp
-                    = FileProp::create(fileName);
-
-                if ( !fp ) {
-                    return static_cast<int>(fp.error());
-                }
-                
-                fp->echo( fileName, eop );
-
-                total += *fp;
+            if ( !op ) {
+                return static_cast<int>(op.error());
             }
 
-            total.echo("total", eop);
-
-            break;
+            eop |= *op;
         }
     }
+
+    const std::vector<std::string>& opr = args.getOperands();
+
+    if (fileCnt == 0) {
+        FileProp fp = FileProp::create( std::cin );
+        FileProp::echo( fp, eop );
+        return 0;
+    }
+
+    std::vector<FileProp> fpv;
+    
+    for (const std::string& fileName : opr) {
+        std::expected<FileProp, ErrorType> fp = FileProp::tryCreate(fileName);
+
+        if ( !fp ) {
+            return static_cast<int>(fp.error());
+        }
+
+        fpv.push_back( *fp );
+    }
+
+    FileProp::echo( fpv, eop );
 
     return 0;
 }
 
 
 EchoOption& operator|=( EchoOption& L, EchoOption R ){
+    using UT = std::underlying_type_t<EchoOption>;
+
     L = static_cast<EchoOption>(
-        static_cast<uint8_t>(L) | static_cast<uint8_t>(R)
+        static_cast<UT>(L) | static_cast<UT>(R)
     );
     return L;
 }
 
-EchoOption operator&( EchoOption L, EchoOption R ){
-    return static_cast<EchoOption>(
-        static_cast<uint8_t>(L) & static_cast<uint8_t>(R)
-    );
+EchoOption operator|( EchoOption L, EchoOption R){
+    L|=R;
+    return L;
 }
 
-EchoOption str2eop( std::string sop ) {
-    std::map<std::string, EchoOption> m;
-    
-    m["-l"  ] = EchoOption::l  ;
-    m["-w"  ] = EchoOption::w  ;
-    m["-b"  ] = EchoOption::b  ;
-    m["-lw" ] = EchoOption::lw ;
-    m["-lb" ] = EchoOption::lb ;
-    m["-wb" ] = EchoOption::wb ;
-    m["-lwb"] = EchoOption::lwb;
+std::expected<EchoOption, ErrorType>
+str2eop( const std::string& sop ) {
+    EchoOption eop = EchoOption::none;
 
-    return m.contains(sop) ? m[sop] : EchoOption::none;
+    for( char c : std::string_view{sop}.substr(1) ) {
+        switch (c) {
+        case 'l':
+            eop |= EchoOption::l;
+            break;
+
+        case 'w':
+            eop |= EchoOption::w;
+            break;
+
+        case 'b':
+            eop |= EchoOption::b;
+            break;
+
+        default:
+            std::cerr << "Unknown option: " << sop << '\n';
+            return std::unexpected{ErrorType::InvalidArgs};
+        }
+    }
+    return eop;
+}
+
+constexpr bool hasFlag(EchoOption value, EchoOption flag) {
+    return (static_cast<uint8_t>(value)
+        & static_cast<uint8_t>(flag)) != 0;
 }
 
 FileProp::FileProp():
-    lines(0),
-    words(0),
-    bytes(0)
+    lines(std::size_t{0}),
+    words(std::size_t{0}),
+    bytes(std::size_t{0})
 {
 }
 
-FileProp FileProp::fromIst( std::istream& is ) {
-    FileProp fp;
+FileProp::FileProp(
+    std::size_t l,
+    std::size_t w,
+    std::size_t b,
+    std::string specName
+):
+    lines(l),
+    words(w),
+    bytes(b),
+    name(specName)
+{
+};
+
+FileProp FileProp::create( std::istream& is, std::string specName ) {
     char ch;
+    FileProp fp;
+    fp.name = specName;
     bool inWord = false;
+
     while ( is.get(ch) ) {
         fp.bytes++;
 
@@ -183,49 +230,70 @@ FileProp FileProp::fromIst( std::istream& is ) {
             fp.lines++;
         }
     }
-    return fp;
+    return std::move(fp);
 }
 
 std::expected<FileProp, ErrorType>
-FileProp::create( const std::string fileName ) {
+FileProp::tryCreate( const std::string& fileName ) {
     std::ifstream ifs(fileName, std::ios_base::binary);
     if ( !ifs.is_open() ) {
         std::cerr << "Invalid file name: " << fileName << std::endl;
         return std::unexpected{ ErrorType::IOError };
     }
-    FileProp fp = FileProp::fromIst(ifs);
 
-    return fp;
+    return FileProp::create(ifs, fileName);
+}
+
+void FileProp::echo( const std::vector<FileProp>& fpv, EchoOption eop ) {
+    
+    for ( const FileProp& fp : fpv ) {
+        echo( fp, eop );
+    }
+
+    if ( fpv.size() > 1 ) {
+
+        std::size_t totalLines = 0;
+        std::size_t totalWords = 0;
+        std::size_t totalBytes = 0;
+
+        for ( const FileProp& fp :fpv ) {
+            totalLines += fp.getLines();
+            totalWords += fp.getWords();
+            totalBytes += fp.getBytes();
+        }
+
+        FileProp totalFP(
+            totalLines, totalWords, totalBytes, "total"
+        );
+        
+        echo( totalFP, eop );
+    }
+}
+
+void FileProp::echo( const FileProp& fp, EchoOption eop )
+{
+    if ( hasFlag(eop, EchoOption::l) ) {
+        std::cout << ' ' << fp.lines;
+    }
+    if ( hasFlag(eop, EchoOption::w) ) {
+        std::cout << ' ' << fp.words;
+    }
+    if ( hasFlag(eop, EchoOption::b) ) {
+        std::cout << ' ' << fp.bytes;
+    }
+    std::cout << ' ' << fp.name << std::endl;
 }
 
 std::size_t FileProp::getLines() const {
     return lines;
 }
+
 std::size_t FileProp::getWords() const {
     return words;
 }
+
 std::size_t FileProp::getBytes() const {
     return bytes;
-}
-
-FileProp& FileProp::operator+=(const FileProp& fp){
-    lines += fp.lines;
-    words += fp.words;
-    bytes += fp.bytes;
-    return *this;
-}
-
-void FileProp::echo( const std::string description, EchoOption eop ) const {
-    if ( static_cast<bool>(eop & EchoOption::l) ) {
-        std::cout << std::setw(4) << lines;
-    }
-    if ( static_cast<bool>(eop & EchoOption::w) ) {
-        std::cout << std::setw(6) << words;
-    }
-    if ( static_cast<bool>(eop & EchoOption::b) ) {
-        std::cout << std::setw(6) << bytes;
-    }
-    std::cout << ' ' << description <<std::endl;
 }
 
 Argument::Argument( int argc, char* argv[] ) {
@@ -241,10 +309,26 @@ Argument::Argument( int argc, char* argv[] ) {
     }
 }
 
-std::vector<std::string> Argument::getOpr() {
+const std::vector<std::string>& Argument::getOperands() const {
     return operands;
 }
 
-std::vector<std::string> Argument::getOpt() {
+const std::vector<std::string>& Argument::getOptions() const {
     return options;
+}
+
+bool Argument::hasOption() const {
+    return !options.empty();
+}
+
+bool Argument::containsOption(std::string opt) const {
+    return std::ranges::contains(options, opt);
+}
+
+void printHelp(){
+
+}
+
+void printVersion(){
+
 }
