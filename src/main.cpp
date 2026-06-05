@@ -4,19 +4,18 @@
 #include <type_traits>
 #include <vector>
 #include <string>
+#include <cctype>
 #include <numeric>
 #include <expected>
 
 /* mywc ********************
-*    version 5.1           *
+*    version 5.2           *
 *                          *
 *    made by Azkey         *
 ****************************/
 
 /* ToDo 
  * + Add help.
- * + Support operand mode('--').
- * + Reject '-' option.
  */
 
 // Specify the type of error.
@@ -35,7 +34,7 @@ enum class EchoOption : uint8_t {
 EchoOption& operator|=(EchoOption& L, EchoOption R);
 EchoOption operator|(EchoOption L, EchoOption R);
 std::expected<EchoOption, ErrorType>
-str2eop( const std::string& sop );
+parseEchoOption( std::string_view sop );
 constexpr bool hasFlag(EchoOption value, EchoOption flag);
 
 class FileProp {
@@ -47,11 +46,11 @@ class FileProp {
     public:
         // FileProp();
         // ~FileProp();
-        static FileProp create(
+        static FileProp fromStream(
             std::istream& is, std::string specName = "<stdin>"
         );
         static std::expected<FileProp, ErrorType>
-            tryCreate( const std::string& fileName );
+            fromFileName( const std::string& fileName );
         static FileProp aggregate( const std::vector<FileProp>& fpv );
         static void echo( const FileProp& fp, EchoOption eop );
         static void echo(
@@ -72,7 +71,7 @@ class Argument {
         const std::vector<std::string>& getOperands() const;
         const std::vector<std::string>& getOptions() const;
         bool hasOption() const;
-        bool containsOption(std::string opt) const;
+        bool containsOption(std::string_view opt) const;
 };
 
 void printHelp();
@@ -101,7 +100,7 @@ int main( int argc, char* argv[] ) {
 
         for (const std::string& sop : args.getOptions()) {
 
-            std::expected<EchoOption, ErrorType> op = str2eop( sop );
+            std::expected<EchoOption, ErrorType> op = parseEchoOption( sop );
 
             if ( !op ) {
                 return static_cast<int>(op.error());
@@ -113,29 +112,29 @@ int main( int argc, char* argv[] ) {
 
     const std::vector<std::string>& opr = args.getOperands();
 
-    std::size_t fileCnt = args.getOperands().size();
-
-    if (fileCnt == 0) {
-        FileProp fp = FileProp::create( std::cin );
+    if (opr.empty()) {
+        FileProp fp = FileProp::fromStream( std::cin );
         FileProp::echo( fp, eop );
         return 0;
     }
 
     std::vector<FileProp> fpv;
+    bool hadError = false;
     
     for (const std::string& fileName : opr) {
-        std::expected<FileProp, ErrorType> fp = FileProp::tryCreate(fileName);
+        std::expected<FileProp, ErrorType> fp = FileProp::fromFileName(fileName);
 
         if ( !fp ) {
-            return static_cast<int>(fp.error());
+            hadError = true;
+            continue;
         }
 
-        fpv.push_back( *fp );
+        fpv.push_back( std::move(*fp) );
     }
 
     FileProp::echo( fpv, eop );
 
-    return 0;
+    return hadError ? static_cast<int>(ErrorType::IOError) : 0;
 }
 
 
@@ -154,10 +153,16 @@ EchoOption operator|( EchoOption L, EchoOption R){
 }
 
 std::expected<EchoOption, ErrorType>
-str2eop( const std::string& sop ) {
+parseEchoOption( std::string_view sop ) {
+
+    if ( sop == "-" ) {
+        std::cerr << "Unknown option: " << sop << '\n';
+        return std::unexpected{ErrorType::InvalidArgs};
+    }
+
     EchoOption eop = EchoOption::none;
 
-    for( char c : std::string_view{sop}.substr(1) ) {
+    for( char c : sop.substr(1) ) {
         switch (c) {
         case 'l':
             eop |= EchoOption::l;
@@ -184,7 +189,7 @@ constexpr bool hasFlag(EchoOption value, EchoOption flag) {
         & static_cast<uint8_t>(flag)) != 0;
 }
 
-FileProp FileProp::create( std::istream& is, std::string specName ) {
+FileProp FileProp::fromStream( std::istream& is, std::string specName ) {
     char ch;
     FileProp fp;
     fp.name = specName;
@@ -204,18 +209,18 @@ FileProp FileProp::create( std::istream& is, std::string specName ) {
             fp.lines++;
         }
     }
-    return std::move(fp);
+    return fp;
 }
 
 std::expected<FileProp, ErrorType>
-FileProp::tryCreate( const std::string& fileName ) {
+FileProp::fromFileName( const std::string& fileName ) {
     std::ifstream ifs(fileName, std::ios_base::binary);
     if ( !ifs.is_open() ) {
-        std::cerr << "Invalid file name: " << fileName << std::endl;
+        std::cerr << "Invalid file name: " << fileName << "\n";
         return std::unexpected{ ErrorType::IOError };
     }
 
-    return FileProp::create(ifs, fileName);
+    return FileProp::fromStream(ifs, fileName);
 }
 
 FileProp FileProp::aggregate( const std::vector<FileProp>& fpv ) {
@@ -253,7 +258,7 @@ void FileProp::echo( const FileProp& fp, EchoOption eop )
     if ( hasFlag(eop, EchoOption::b) ) {
         std::cout << ' ' << fp.bytes;
     }
-    std::cout << ' ' << fp.name << std::endl;
+    std::cout << ' ' << fp.name << '\n';
 }
 
 std::size_t FileProp::getLines() const {
@@ -269,15 +274,25 @@ std::size_t FileProp::getBytes() const {
 }
 
 Argument::Argument( int argc, char* argv[] ) {
+    bool oprFlag = false;
     for ( int i = 1; i < argc; i++ ) {
-        std::string arg = argv[i];
+        std::string_view arg = argv[i];
 
-        if (arg.starts_with('-')) {
-            options.push_back(std::move(arg));
+        if ( oprFlag ) {
+            operands.emplace_back(arg);
             continue;
         }
 
-        operands.push_back(std::move(arg));
+        if ( arg == "--" ) {
+            oprFlag = true;
+            continue;
+        }
+
+        if (arg.starts_with('-')) {
+            options.emplace_back(arg);
+        } else {
+            operands.emplace_back(arg);
+        }
     }
 }
 
@@ -293,7 +308,7 @@ bool Argument::hasOption() const {
     return !options.empty();
 }
 
-bool Argument::containsOption(std::string opt) const {
+bool Argument::containsOption(std::string_view opt) const {
     return std::ranges::contains(options, opt);
 }
 
