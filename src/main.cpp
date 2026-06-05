@@ -8,15 +8,13 @@
 #include <numeric>
 #include <expected>
 
-/* mywc ********************
-*    version 5.2           *
-*                          *
-*    made by Azkey         *
-****************************/
+/* mywc ******************************************/
+     constexpr std::string_view VERSION = "6.0";
+/*                                               */
+/*   made by Azkey                               */
+/*************************************************/
 
-/* ToDo 
- * + Add help.
- */
+
 
 // Specify the type of error.
 enum class ErrorType {
@@ -313,9 +311,22 @@ bool Argument::containsOption(std::string_view opt) const {
 }
 
 void printHelp(){
-
+    std::cout
+    << "Usage: mywc [OPTION]... [FILE]...\n"
+    << "Print newline, word, and byte counts for each FILE, and a total line if\n"
+    << "more than one FILE is specified.  A word is a non-zero-length sequence of\n"
+    << "characters delimited by white space.\n"
+    << "\n"
+    << "With no FILE, read standard input.\n"
+    << "The options below may be used to select which counts are printed, always in\n"
+    << "the following order: newline, word, character, byte, maximum line length.\n"
+    << "  -b            print the byte counts\n"
+    << "  -l            print the newline counts\n"
+    << "  -w            print the word counts\n"
+    << "  --help        display this help and exit\n"
+    << "  --version     output version information and exit\n";
 }
 
 void printVersion(){
-
+    std::cout << "mywc " << VERSION << "\n";
 }
