@@ -8,7 +8,7 @@
 #include <expected>
 
 /* mywc ********************
-*    version 5.0           *
+*    version 5.1           *
 *                          *
 *    made by Azkey         *
 ****************************/
@@ -17,7 +17,6 @@
  * + Add help.
  * + Support operand mode('--').
  * + Reject '-' option.
- * + Separate aggregation function in FileProp::echo.
  */
 
 // Specify the type of error.
@@ -41,24 +40,19 @@ constexpr bool hasFlag(EchoOption value, EchoOption flag);
 
 class FileProp {
     private:
-        std::size_t lines;
-        std::size_t words;
-        std::size_t bytes;
+        std::size_t lines = 0;
+        std::size_t words = 0;
+        std::size_t bytes = 0;
         std::string name;
     public:
-        FileProp();
-        FileProp(
-            std::size_t l,
-            std::size_t w,
-            std::size_t b,
-            std::string specName
-        );
+        // FileProp();
         // ~FileProp();
         static FileProp create(
             std::istream& is, std::string specName = "<stdin>"
         );
         static std::expected<FileProp, ErrorType>
             tryCreate( const std::string& fileName );
+        static FileProp aggregate( const std::vector<FileProp>& fpv );
         static void echo( const FileProp& fp, EchoOption eop );
         static void echo(
             const std::vector<FileProp>& fpv,
@@ -89,10 +83,6 @@ int main( int argc, char* argv[] ) {
 
     Argument args(argc, argv);
 
-    std::size_t fileCnt = args.getOperands().size();
-
-    EchoOption eop = EchoOption::l | EchoOption::w | EchoOption::b;
-
     if ( args.containsOption("--help") ) {
         printHelp();
         return 0;
@@ -102,6 +92,8 @@ int main( int argc, char* argv[] ) {
         printVersion();
         return 0;
     }
+
+    EchoOption eop = EchoOption::l | EchoOption::w | EchoOption::b;
 
     if ( args.hasOption() ) {
         
@@ -120,6 +112,8 @@ int main( int argc, char* argv[] ) {
     }
 
     const std::vector<std::string>& opr = args.getOperands();
+
+    std::size_t fileCnt = args.getOperands().size();
 
     if (fileCnt == 0) {
         FileProp fp = FileProp::create( std::cin );
@@ -190,26 +184,6 @@ constexpr bool hasFlag(EchoOption value, EchoOption flag) {
         & static_cast<uint8_t>(flag)) != 0;
 }
 
-FileProp::FileProp():
-    lines(std::size_t{0}),
-    words(std::size_t{0}),
-    bytes(std::size_t{0})
-{
-}
-
-FileProp::FileProp(
-    std::size_t l,
-    std::size_t w,
-    std::size_t b,
-    std::string specName
-):
-    lines(l),
-    words(w),
-    bytes(b),
-    name(specName)
-{
-};
-
 FileProp FileProp::create( std::istream& is, std::string specName ) {
     char ch;
     FileProp fp;
@@ -244,29 +218,27 @@ FileProp::tryCreate( const std::string& fileName ) {
     return FileProp::create(ifs, fileName);
 }
 
+FileProp FileProp::aggregate( const std::vector<FileProp>& fpv ) {
+    FileProp totalFP;
+    totalFP.name = "total";
+
+    for ( const FileProp& fp :fpv ) {
+        totalFP.lines += fp.getLines();
+        totalFP.words += fp.getWords();
+        totalFP.bytes += fp.getBytes();
+    }
+
+    return totalFP;
+}
+
 void FileProp::echo( const std::vector<FileProp>& fpv, EchoOption eop ) {
     
     for ( const FileProp& fp : fpv ) {
         echo( fp, eop );
     }
 
-    if ( fpv.size() > 1 ) {
-
-        std::size_t totalLines = 0;
-        std::size_t totalWords = 0;
-        std::size_t totalBytes = 0;
-
-        for ( const FileProp& fp :fpv ) {
-            totalLines += fp.getLines();
-            totalWords += fp.getWords();
-            totalBytes += fp.getBytes();
-        }
-
-        FileProp totalFP(
-            totalLines, totalWords, totalBytes, "total"
-        );
-        
-        echo( totalFP, eop );
+    if ( fpv.size() > 1 ) {        
+        echo( FileProp::aggregate(fpv), eop );
     }
 }
 
