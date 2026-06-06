@@ -1,6 +1,7 @@
 # mywc
 
 C++23を利用したシンプルな`wc`コマンド風ツール
+
 A simple `wc`-like utility written in C++23.
 
 ---
