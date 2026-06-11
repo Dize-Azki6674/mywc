@@ -144,7 +144,7 @@ mywc 6.0
 | プロジェクト | 状況 | リンク | 概要 |
 |------------|------|--------|------|
 | mywc | 完了 | https://github.com/Dize-Azki6674/mywc | wc 風行数カウントツール |
-| mygrep | 準備中 | https://github.com/Dize-Azki6674/mygrep | grep 風文字列検索ツール |
+| mygrep | 完了 | https://github.com/Dize-Azki6674/mygrep | grep 風文字列検索ツール |
 
 ---
 
@@ -296,7 +296,7 @@ The current status of other projects in the training series can be found below.
 | Project | Status | Link | Description |
 |----------|----------|--------|-------------|
 | mywc | Completed | https://github.com/Dize-Azki6674/mywc | A wc-like text statistics utility |
-| mygrep | Under Construction | https://github.com/Dize-Azki6674/mygrep | A grep-like string search utility |
+| mygrep | Completed | https://github.com/Dize-Azki6674/mygrep | A grep-like string search utility |
 
 ---
 
